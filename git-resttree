@@ -1,0 +1,168 @@
+#!/bin/bash
+
+# git-resttree: 複数ブランチを同時編集するためのgit worktreeラッパー
+
+# グローバル変数
+BRANCH=""
+WORKTREE_PATH=""
+
+# =============================================================================
+# 各フェーズの関数定義
+# =============================================================================
+
+# 依存関係チェック
+check_dependencies() {
+    if ! command -v peco &> /dev/null; then
+        echo "エラー: pecoがインストールされていません"
+        exit 1
+    fi
+}
+
+# ブランチ選択フェーズ
+select_branch() {
+    echo "ブランチを選択してください（新規ブランチ名も直接入力可能）:"
+    BRANCH=$(git branch --format='%(refname:short)' | peco --print-query | tail -n 1)
+
+    if [ -z "$BRANCH" ]; then
+        echo "ブランチが選択されませんでした"
+        exit 1
+    fi
+
+    echo "選択されたブランチ: $BRANCH"
+}
+
+# 作業ツリー存在チェック
+check_existing_worktree() {
+    local existing_worktree
+    existing_worktree=$(git worktree list | grep -E "\[$BRANCH\]$" | awk '{print $1}')
+    
+    if [ -n "$existing_worktree" ]; then
+        echo "作業ツリーが既に存在します: $existing_worktree"
+        WORKTREE_PATH="$existing_worktree"
+        return 0  # 存在する
+    else
+        return 1  # 存在しない
+    fi
+}
+
+# ブランチ存在チェック・新規作成
+check_and_create_branch() {
+    if ! git show-ref --verify --quiet refs/heads/"$BRANCH"; then
+        echo "ブランチ '$BRANCH' が存在しません。新規作成しますか？ (y/N)"
+        read -r CREATE_BRANCH
+        if [[ "$CREATE_BRANCH" =~ ^[Yy]$ ]]; then
+            echo "新しいブランチを作成中..."
+            if git checkout -b "$BRANCH"; then
+                echo "ブランチ '$BRANCH' を作成しました"
+            else
+                echo "エラー: ブランチの作成に失敗しました"
+                exit 1
+            fi
+        else
+            echo "処理を中止しました"
+            exit 1
+        fi
+    fi
+}
+
+# パス指定フェーズ
+specify_path() {
+    echo ""
+    echo "パスを指定してください（空白でブランチ名をパスとして使用します）"
+    read -r PATH_INPUT
+    
+    # PATH_INPUTかBRANCHかを判断
+    if [ -z "$PATH_INPUT" ]; then
+        BASE_PATH="$BRANCH"
+    else
+        BASE_PATH="$PATH_INPUT"
+    fi
+    
+    # WORKTREE_DIRを付けるかどうかを判断
+    if [ -n "$WORKTREE_DIR" ]; then
+        WORKTREE_PATH="${WORKTREE_DIR}/${BASE_PATH}"
+    else
+        WORKTREE_PATH="$BASE_PATH"
+    fi
+    
+    echo "パス: $WORKTREE_PATH"
+}
+
+# 作業ツリー作成
+create_worktree() {
+    while true; do
+        echo ""
+        echo "作業ツリーを追加中..."
+        if git worktree add "$WORKTREE_PATH" "$BRANCH"; then
+            echo "作業ツリーが正常に追加されました: $WORKTREE_PATH"
+            break
+        else
+            echo ""
+            echo "エラー: 作業ツリーの追加に失敗しました"
+            echo "別のパスを指定してください"
+            specify_path
+        fi
+    done
+}
+
+# アプリ選択・起動フェーズ
+select_and_launch_app() {
+    echo ""
+    echo "どのアプリで開きますか？"
+    
+    PS3="選択してください: "
+    options=("選択しない" "Terminal" "Cursor" "IntelliJ IDEA")
+    select opt in "${options[@]}"; do
+        case $opt in
+            "選択しない")
+                echo "作業ツリーのパス: $WORKTREE_PATH"
+                break
+                ;;
+            "Terminal")
+                echo "Terminalで開いています..."
+                cd "$WORKTREE_PATH" || exit 1
+                exec $SHELL
+                ;;
+            "Cursor")
+                echo "Cursorで開いています..."
+                cursor "$WORKTREE_PATH"
+                break
+                ;;
+            "IntelliJ IDEA")
+                echo "IntelliJ IDEAで開いています..."
+                open -na "IntelliJ IDEA Ultimate.app" --args nosplash "$WORKTREE_PATH"
+                break
+                ;;
+            *)
+                echo "無効な選択です。もう一度選択してください。"
+                ;;
+        esac
+    done
+}
+
+# =============================================================================
+# メイン処理
+# =============================================================================
+
+main() {
+    check_dependencies
+    
+    select_branch
+    
+    if check_existing_worktree; then
+        select_and_launch_app
+    else
+        check_and_create_branch
+        
+        specify_path
+        
+        create_worktree
+        
+        select_and_launch_app
+    fi
+    
+    echo "完了しました。"
+}
+
+# スクリプト実行
+main "$@"
