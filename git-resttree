@@ -63,7 +63,7 @@ check_and_create_branch() {
         read -r CREATE_BRANCH
         if [[ "$CREATE_BRANCH" =~ ^[Yy]$ ]]; then
             echo "新しいブランチを作成中..."
-            if git checkout -b "$BRANCH"; then
+            if git branch "$BRANCH"; then
                 echo "ブランチ '$BRANCH' を作成しました"
             else
                 echo "エラー: ブランチの作成に失敗しました"
