@@ -34,7 +34,18 @@ select_branch() {
 # 作業ツリー存在チェック
 check_existing_worktree() {
     local existing_worktree
-    existing_worktree=$(git worktree list | grep -E "\[$BRANCH\]$" | awk '{print $1}')
+    local current_path=""
+    
+    # --porcelain -z を使用してパース
+    while IFS= read -r -d '' line; do
+        case "$line" in
+            "worktree "*) 
+                current_path="${line#worktree }" ;;
+            "branch refs/heads/$BRANCH")
+                existing_worktree="$current_path"
+                break ;;
+        esac
+    done < <(git worktree list --porcelain -z)
     
     if [ -n "$existing_worktree" ]; then
         echo "作業ツリーが既に存在します: $existing_worktree"
